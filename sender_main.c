@@ -14,6 +14,17 @@
 #define MAXBUFLENGTH 1472
 #define FRAMESIZE 4
 
+
+struct state_machine{
+	int cong_win_start;
+	int cong_win_end;
+	int curr_packet;
+	int highest_acked_packet;
+	enum state_name { CA, SS, FR } conn_state;
+	int dupack_ct;
+	
+} state;
+
 //Prototypes
 void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long long int bytesToTransfer);
 
@@ -145,6 +156,17 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	struct addrinfo *p; // address of recipient
 	int i = 0;
 	
+	//state machine
+	state.cong_win_start = 0;
+	state.cong_win_end = 1;
+	state.curr_packet = 0;
+	state.highest_acked_packet = -1;
+	state.conn_state = SS;
+	state.dupack_ct = 0;
+	
+	
+	
+	
 	int total_packet_ct = (bytesToTransfer / (MAXBUFLENGTH - sizeof(int))) + 1;
 	int bytes_left = bytesToTransfer;
 	int last_packet_sent = -1;
@@ -174,6 +196,98 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
                 sizeof(tv)) < 0)
         perror("setsockopt failed\n");
 	
+	
+	
+	int j = 0, bytes_sent = 0;
+	while(state.curr_packet < total_packet_ct)
+	{
+		j = 0;
+		//Send off congestion window
+		for(; state.curr_packet< state.cong_win_end; state.curr_packet++)
+		{
+			
+			int next_packet_size;
+			if((bytesToTransfer - bytes_sent) > (MAXBUFLENGTH-sizeof(int))) // Multiple packets left
+				next_packet_size = MAXBUFLENGTH-sizeof(int);
+			else // last packet
+				next_packet_size = bytesToTransfer-bytes_sent;
+
+			char pay[MAXBUFLENGTH];
+			create_payload(pay, pFile, (MAXBUFLENGTH-sizeof(int))*state.curr_packet, next_packet_size, state.curr_packet);
+			if(pay == NULL)
+			{
+				printf("ERROR: could not create a payload\n");
+				exit(1);
+			}
+
+			send_packet(pay, next_packet_size+sizeof(int) , sockfd, p);
+			bytes_sent += next_packet_size;
+			j++;
+		}
+		state.cong_win_end += j;
+		state.cong_win_start += j;
+		
+		//Listen for Acks and respond accordingly
+		int k = 0;
+		for(k = j; k >= 0; k--)
+		{
+			char recv_buf[MAXBUFLENGTH];
+			int numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd);
+			
+			if(numbytes == 0  )
+			{
+				//Timed out or received unexpected ack
+				state.curr_packet = state.highest_acked_packet+1;
+				state.cong_win_start = state.curr_packet;
+				state.cong_win_end = state.curr_packet + j;
+				bytes_sent-=(k+1)*(MAXBUFLENGTH - sizeof(int));
+				printf("listener: received timeout\n");
+				int sockfd = create_socket(hostname, hostUDPport, &p);
+				break;
+
+			}
+			else if(*recv_buf != state.highest_acked_packet+1) 
+			{
+				// Out of order Ack
+				state.curr_packet = state.highest_acked_packet+1;
+				state.cong_win_start = state.curr_packet;
+				state.cong_win_end = state.curr_packet + j;
+				bytes_sent-=(k+1)*(MAXBUFLENGTH - sizeof(int));
+				printf("listener: received ack%d\n", *recv_buf);
+				int sockfd = create_socket(hostname, hostUDPport, &p);
+				break;
+				
+			}
+			else {
+				state.highest_acked_packet++;
+				printf("ack %d received\n", *recv_buf);
+				
+				// Send a packet -----------------------------------
+				int next_packet_size;
+				if((bytesToTransfer - bytes_sent) > (MAXBUFLENGTH-sizeof(int))) // Multiple packets left
+					next_packet_size = MAXBUFLENGTH-sizeof(int);
+				else // last packet
+					next_packet_size = bytesToTransfer;
+
+				char pay[MAXBUFLENGTH];
+				create_payload(pay, pFile, (MAXBUFLENGTH-sizeof(int))*state.curr_packet, next_packet_size, state.curr_packet);
+				if(pay == NULL)
+				{
+					printf("ERROR: could not create a payload\n");
+					exit(1);
+				}
+				send_packet(pay, next_packet_size+sizeof(int) , sockfd, p);
+				state.curr_packet++;
+				// Send a packet ------------------------------------
+				
+				state.cong_win_end++;
+				bytesToTransfer -= next_packet_size; // successfully sent these packets
+			}
+		}
+	}
+	
+	
+	/*
 	
 	while( i < total_packet_ct) {
 		
@@ -214,7 +328,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 		}	
 		
 	}
-	
+	*/
 	char fin[10];
 	int fin_num = -1;
 	memcpy(fin, &fin_num, sizeof(int));
