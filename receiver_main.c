@@ -113,6 +113,7 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 		{
 			char resp[4];
 			memcpy(resp,&state.last_inorder_packet, sizeof(state.last_inorder_packet));
+			printf("sending ack%d\n",state.last_inorder_packet);
 			send_packet(resp, sizeof(int), sockfd, &their_addr);
 		}
 		else // Packet was the next in ack sequence

@@ -12,7 +12,7 @@
 
 
 #define MAXBUFLENGTH 1472
-#define sizeof(int) 4
+#define FRAMESIZE 4
 
 //Prototypes
 void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long long int bytesToTransfer);
@@ -82,7 +82,7 @@ void send_packet(const char* buf, int len, int sockfd, struct addrinfo *p)
 {    
     int numbytes;
 
-    //printf("send packet %d\n", *buf);
+    printf("send packet %d\n", *buf);
     if ((numbytes = sendto(sockfd, buf, len, 0, 
              p->ai_addr, p->ai_addrlen)) == -1) { 
         perror("talker: sendto"); 
@@ -100,7 +100,7 @@ int receive_packet(char* buf, int buf_size, int sockfd)
 
     if ((numbytes = recv(sockfd, buf, buf_size , 0)) == -1) { 
         perror("recv"); 
-        exit(1); 
+        //exit(1); 
     } 
     buf[numbytes] = '\0'; 
 
@@ -175,7 +175,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
         perror("setsockopt failed\n");
 	
 	
-	for(i = 0; i < total_packet_ct; i++) {
+	while( i < total_packet_ct) {
 		
 		printf("I have %lld bytes left to transfer\n", bytesToTransfer);
 		
@@ -200,14 +200,17 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 		int numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd);
 		if(numbytes == 0 || *recv_buf != last_packet_acked+1)
 		{
-			last_packet_sent = last_packet_acked;
-			i = last_packet_acked;
-			printf("listener: received timeout");
+			//last_packet_sent = last_packet_acked;
+			i = last_packet_acked+1;
+			printf("listener: received timeout\n");
+			int sockfd = create_socket(hostname, hostUDPport, &p);
+			
 		}
 		else {
 			last_packet_acked++;
 			printf("ack %d received\n", *recv_buf);
 			bytesToTransfer -= next_packet_size; // successfully sent these packets
+			i++;
 		}
 		
 		
