@@ -118,6 +118,7 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 		}
 		else // Packet was the next in ack sequence
 		{
+			printf("Writing packet %d to file\n", *buf);
 			int res = fputs(buf+FRAMESIZE, pFile);
 			if(res == EOF)
 			{

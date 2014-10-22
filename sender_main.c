@@ -124,14 +124,14 @@ int receive_packet(char* buf, int buf_size, int sockfd)
 // Payload Management
 /* -------------------------------------------------------------------------------- */
 
-char * create_payload(char * pay, FILE * fp, int start_byte, int size,  int seq)
+int create_payload(char * pay, FILE * fp, int start_byte, int size,  int seq)
 {
 	int i = 0;
 	//printf("Payload: byte %d to %d\n", start_byte, size+start_byte-1);
 	if(size > MAXBUFLENGTH - sizeof(int))
 	{
 		printf("pay: cannot create payload that large within constraints\n");
-		return NULL;
+		return -1;
 	}
 	if(fseek(fp, start_byte, SEEK_SET) != 0)
 	{
@@ -141,7 +141,7 @@ char * create_payload(char * pay, FILE * fp, int start_byte, int size,  int seq)
 	memset(pay, seq, sizeof(seq));
 	fread(pay+sizeof(int), 1, size, fp);
 	//printf("\n----END PACKET ----\n");
-	return pay;
+	return 0;
 }
 
 
@@ -199,38 +199,17 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	
 	
 	int j = 0, bytes_sent = 0;
-	while(state.curr_packet < total_packet_ct)
+	
+	
+	while(state.highest_acked_packet+1 < total_packet_ct)
 	{
 		j = 0;
-		//Send off congestion window
-		for(; state.curr_packet< state.cong_win_end; state.curr_packet++)
+		//printf("Curr packet is : %d\n", state.curr_packet);
+		printf("bytes_sent: %d\n", bytes_sent);
+		int store = state.curr_packet;
+		while(state.highest_acked_packet < store - 1)
 		{
-			
-			int next_packet_size;
-			if((bytesToTransfer - bytes_sent) > (MAXBUFLENGTH-sizeof(int))) // Multiple packets left
-				next_packet_size = MAXBUFLENGTH-sizeof(int);
-			else // last packet
-				next_packet_size = bytesToTransfer-bytes_sent;
-
-			char pay[MAXBUFLENGTH];
-			create_payload(pay, pFile, (MAXBUFLENGTH-sizeof(int))*state.curr_packet, next_packet_size, state.curr_packet);
-			if(pay == NULL)
-			{
-				printf("ERROR: could not create a payload\n");
-				exit(1);
-			}
-
-			send_packet(pay, next_packet_size+sizeof(int) , sockfd, p);
-			bytes_sent += next_packet_size;
-			j++;
-		}
-		state.cong_win_end += j;
-		state.cong_win_start += j;
-		
-		//Listen for Acks and respond accordingly
-		int k = 0;
-		for(k = j; k >= 0; k--)
-		{
+			printf("Respond State\n");
 			char recv_buf[MAXBUFLENGTH];
 			int numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd);
 			
@@ -240,38 +219,63 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 				state.curr_packet = state.highest_acked_packet+1;
 				state.cong_win_start = state.curr_packet;
 				state.cong_win_end = state.curr_packet + j;
-				bytes_sent-=(k+1)*(MAXBUFLENGTH - sizeof(int));
-				printf("listener: received timeout\n");
+				bytes_sent-=(state.highest_acked_packet+1) * (MAXBUFLENGTH-sizeof(int));
+				//printf("listener: received timeout\n");
 				int sockfd = create_socket(hostname, hostUDPport, &p);
 				break;
 
 			}
-			else if(*recv_buf != state.highest_acked_packet+1) 
+			else if(*recv_buf < state.highest_acked_packet+1) 
 			{
-				// Out of order Ack
+				// Ack is behind expectation
 				state.curr_packet = state.highest_acked_packet+1;
+				int window_size = state.cong_win_end - state.cong_win_start;
 				state.cong_win_start = state.curr_packet;
-				state.cong_win_end = state.curr_packet + j;
-				bytes_sent-=(k+1)*(MAXBUFLENGTH - sizeof(int));
-				printf("listener: received ack%d\n", *recv_buf);
-				int sockfd = create_socket(hostname, hostUDPport, &p);
+				state.cong_win_end = state.curr_packet + window_size;
+				bytes_sent-=(state.highest_acked_packet+1) * (MAXBUFLENGTH-sizeof(int));
+				//printf("listener: out of order received ack%d\n", *recv_buf);
+			 	sockfd = create_socket(hostname, hostUDPport, &p);
 				break;
 				
+			}
+			else if(*recv_buf > state.highest_acked_packet+1) 
+			{
+				// Ack is ahead of expectation
+				state.highest_acked_packet = *recv_buf;
+				state.curr_packet = state.highest_acked_packet+1;
+				int window_size = state.cong_win_end - state.cong_win_start;
+				state.cong_win_start = state.curr_packet;
+				state.cong_win_end = state.curr_packet + window_size;
+				bytes_sent-=(state.highest_acked_packet+1) * (MAXBUFLENGTH-sizeof(int));
+				//printf("listener: out of order received ack%d\n", *recv_buf);
+			 	sockfd = create_socket(hostname, hostUDPport, &p);
+				break;
 			}
 			else {
 				state.highest_acked_packet++;
-				printf("ack %d received\n", *recv_buf);
+				state.cong_win_start++;
+				state.cong_win_end++;
+				//printf("listener: in order ack %d received\n", *recv_buf);
+				//printf("highest acked packet is now %d\n", state.highest_acked_packet);
 				
 				// Send a packet -----------------------------------
 				int next_packet_size;
-				if((bytesToTransfer - bytes_sent) > (MAXBUFLENGTH-sizeof(int))) // Multiple packets left
+				if(state.curr_packet + 1 < total_packet_ct ){ // Multiple packets left
 					next_packet_size = MAXBUFLENGTH-sizeof(int);
-				else // last packet
-					next_packet_size = bytesToTransfer;
-
+					//printf("multiple remaining\n");
+				}
+				else if(state.curr_packet + 1 == total_packet_ct){ // last packet
+					next_packet_size = bytesToTransfer - bytes_sent;
+					//printf("one remaining\n");
+				}
+				else {
+					next_packet_size = 0;
+					//printf("end of file\n");
+					break;
+				}
 				char pay[MAXBUFLENGTH];
-				create_payload(pay, pFile, (MAXBUFLENGTH-sizeof(int))*state.curr_packet, next_packet_size, state.curr_packet);
-				if(pay == NULL)
+				int ret = create_payload(pay, pFile, (MAXBUFLENGTH - sizeof(int))*state.curr_packet, next_packet_size, state.curr_packet);
+				if(ret == -1)
 				{
 					printf("ERROR: could not create a payload\n");
 					exit(1);
@@ -280,10 +284,42 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 				state.curr_packet++;
 				// Send a packet ------------------------------------
 				
-				state.cong_win_end++;
-				bytesToTransfer -= next_packet_size; // successfully sent these packets
+				bytes_sent += next_packet_size; // successfully sent these packets
 			}
+		
+			printf("Ack %d\n",*recv_buf);
+		
 		}
+		
+		
+		for(; state.curr_packet < state.cong_win_end && state.curr_packet < total_packet_ct; state.curr_packet++)
+		{
+			printf("Send State\n");
+			int next_packet_size;
+			if(state.curr_packet + 1 < total_packet_ct) // Multiple packets left
+				next_packet_size = MAXBUFLENGTH-sizeof(int);
+			else if(state.curr_packet +1 == total_packet_ct)
+				next_packet_size = bytesToTransfer-bytes_sent;
+			else
+				break;
+
+			char pay[MAXBUFLENGTH];
+			int ret = create_payload(pay, pFile, (MAXBUFLENGTH-sizeof(int))*state.curr_packet, next_packet_size, state.curr_packet);
+			if(ret == -1)
+			{
+				printf("ERROR: could not create a payload\n");
+				exit(1);
+			}
+
+			send_packet(pay, next_packet_size+sizeof(int) , sockfd, p);
+			bytes_sent += next_packet_size;
+			
+			j++;
+		}
+	
+		state.cong_win_end += j;
+		state.cong_win_start += j;
+		
 	}
 	
 	
