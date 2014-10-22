@@ -211,16 +211,11 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 			printf("ack %d received\n", *recv_buf);
 			bytesToTransfer -= next_packet_size; // successfully sent these packets
 			i++;
-		}
-		
-		
-		
-		
-		
+		}	
 		
 	}
 	
-	char fin[50];
+	char fin[10];
 	int fin_num = -1;
 	memcpy(fin, &fin_num, sizeof(int));
 	send_packet(fin, 50, sockfd, p);
