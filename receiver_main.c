@@ -37,13 +37,12 @@ void send_packet(const char* buf, int len, int sockfd, struct sockaddr_storage *
 {    
     int numbytes;
 
-    printf("send packet %d\n", *buf);
     if ((numbytes = sendto(sockfd, buf, len, 0, 
              (struct sockaddr*) their_addr, sizeof(struct sockaddr_storage))) == -1) { 
         perror("talker: sendto"); 
         exit(1); 
     }
-    else    printf("talker: sent %d bytes\n", len); 
+    //else    printf("talker: sent %d bytes\n", len); 
 
 }
 
@@ -54,15 +53,15 @@ int receive_packet(char* buf, int sockfd, struct sockaddr_storage * their_addr)
     //struct sockaddr_storage their_addr; 
     socklen_t addr_len; 
 
-    printf("listener: waiting to recvfrom...\n"); 
+    //printf("listener: waiting to recvfrom...\n"); 
 
     addr_len = sizeof (struct sockaddr_storage); 
-    if ((numbytes = recvfrom(sockfd, buf, MAXBUFLENGTH-1 , 0, 
+    if ((numbytes = recvfrom(sockfd, buf, MAXBUFLENGTH , 0, 
         (struct sockaddr *)their_addr, &addr_len)) == -1) { 
         perror("recvfrom"); 
         exit(1); 
     } 
-    buf[numbytes] = '\0'; 
+    buf[numbytes+1] = '\0'; 
 
 	return numbytes;
 }
@@ -85,26 +84,30 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 		exit(1);
 	}
 
-	char * buf = (char *)malloc(sizeof(char) * MAXBUFLENGTH);
+	char * buf = (char *)malloc(MAXBUFLENGTH);
 	
 	
 	while(1) {
 		struct sockaddr_storage their_addr;
 		int byte_ct = receive_packet(buf, sockfd, &their_addr);
 	
-		printf("received a packet!: \n");
-		printf("%s", buf);
-		printf("\n");
+		//printf("received a packet!: \n");
+		printf("packet number %d had size of %d\n", *buf, byte_ct);
+		if(*buf == -1)
+			break;
+		//printf("%s", (buf+sizeof(int)));
+		//printf("\n---NEW PACKET ---\n");
 		
-		int res = fputs(buf, pFile);
+		int res = fputs(buf+FRAMESIZE, pFile);
 		if(res == EOF)
 		{
 			//Handle error here
 		}
-		send_packet( buf, 6 , sockfd, &their_addr);
+		send_packet(buf, sizeof(int) , sockfd, &their_addr);
 		
 	}
 
+	free(buf);
 	//clean up file
 	fclose(pFile);
 	

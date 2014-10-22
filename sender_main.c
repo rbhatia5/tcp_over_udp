@@ -12,7 +12,7 @@
 
 
 #define MAXBUFLENGTH 1472
-#define FRAMESIZE 4
+#define sizeof(int) 4
 
 //Prototypes
 void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long long int bytesToTransfer);
@@ -96,7 +96,7 @@ int receive_packet(char* buf, int buf_size, int sockfd)
 {
     int numbytes;
 
-    printf("listener: waiting to recvfrom...\n"); 
+    //printf("listener: waiting to recvfrom...\n"); 
 
     if ((numbytes = recv(sockfd, buf, buf_size , 0)) == -1) { 
         perror("recv"); 
@@ -104,7 +104,7 @@ int receive_packet(char* buf, int buf_size, int sockfd)
     } 
     buf[numbytes] = '\0'; 
 
-	printf("listener: received %d bytes!\n", numbytes);
+	//printf("listener: received %d bytes!\n", numbytes);
 
 	return numbytes;
 }
@@ -113,9 +113,11 @@ int receive_packet(char* buf, int buf_size, int sockfd)
 // Payload Management
 /* -------------------------------------------------------------------------------- */
 
-char * create_payload(FILE * fp, int start_byte, int size,  int seq)
+char * create_payload(char * pay, FILE * fp, int start_byte, int size,  int seq)
 {
-	if(size > MAXBUFLENGTH - FRAMESIZE)
+	int i = 0;
+	printf("Payload: byte %d to %d\n", start_byte, size+start_byte-1);
+	if(size > MAXBUFLENGTH - sizeof(int))
 	{
 		printf("pay: cannot create payload that large within constraints\n");
 		return NULL;
@@ -123,13 +125,12 @@ char * create_payload(FILE * fp, int start_byte, int size,  int seq)
 	if(fseek(fp, start_byte, SEEK_SET) != 0)
 	{
 			//Handle seek fail
-	}
+	} 
 	
-	char * buf = (char *)malloc(FRAMESIZE + size);
-	memset(buf,seq, sizeof(seq));
-	fread(buf+FRAMESIZE, 1, size, fp);
-	
-	return buf;
+	memset(pay, seq, sizeof(seq));
+	fread(pay+sizeof(int), 1, size, fp);
+	printf("\n----END PACKET ----\n");
+	return pay;
 }
 
 
@@ -144,7 +145,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	struct addrinfo *p; // address of recipient
 	int i = 0;
 	
-	int total_packet_ct = bytesToTransfer / (MAXBUFLENGTH - FRAMESIZE) + 1;
+	int total_packet_ct = (bytesToTransfer / (MAXBUFLENGTH - sizeof(int))) + 1;
 	int bytes_left = bytesToTransfer;
 	int last_packet_sent = -1;
 	int last_packet_acked = -1;
@@ -174,40 +175,47 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 
 	
 	
-	for(i = 0; i < 1; i++) {
+	for(i = 0; i < total_packet_ct; i++) {
+		
+		printf("I have %lld bytes left to transfer\n", bytesToTransfer);
 		
 		int next_packet_size;
-		if(bytesToTransfer > (MAXBUFLENGTH-FRAMESIZE)) // Multiple packets left
-			next_packet_size = MAXBUFLENGTH-FRAMESIZE;
-		else
+		if(bytesToTransfer > (MAXBUFLENGTH-sizeof(int))) // Multiple packets left
+			next_packet_size = MAXBUFLENGTH-sizeof(int);
+		else // last packet
 			next_packet_size = bytesToTransfer;
-			
-		char * buf = create_payload(pFile, (MAXBUFLENGTH-FRAMESIZE)*i, next_packet_size, 0);
-		if(buf == NULL)
+		
+		char pay[MAXBUFLENGTH];
+		create_payload(pay, pFile, (MAXBUFLENGTH-sizeof(int))*i, next_packet_size, i);
+		if(pay == NULL)
 		{
 			printf("ERROR: could not create a payload\n");
 			exit(1);
 		}
 		
-		char recv_buf[MAXBUFLENGTH];
-		
-		send_packet(buf, next_packet_size , sockfd, p);
+		send_packet(pay, next_packet_size+sizeof(int) , sockfd, p);
 		last_packet_sent++;
 		
+		char recv_buf[MAXBUFLENGTH];
 		int numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd);
 		if(numbytes == 0)
 		{
 			printf("listener: received timeout");
 		}
 		last_packet_acked++;
-		printf("%s\n", recv_buf);
+		printf("ack %d received\n", *recv_buf);
 		
-		bytesToTransfer -= MAXBUFLENGTH; // successfully sent these packets
+		bytesToTransfer -= next_packet_size; // successfully sent these packets
+		
+		
+		
 	}
 	
+	char fin[50];
+	int fin_num = -1;
+	memcpy(fin, &fin_num, sizeof(int));
+	send_packet(fin, 50, sockfd, p);
 	
-	char FIN[] = "-1";
-	send_packet(FIN, sizeof(FIN), sockfd, p);
 	
 	//clean up file
 	fclose(pFile);
