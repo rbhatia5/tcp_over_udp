@@ -12,9 +12,16 @@
 #define MAXBUFLENGTH 1472
 #define FRAMESIZE 4
 
+#define DEBUG 1
+
 //Prototypes
 void reliablyReceive(char* myUDPport, char* destinationFile);
 int create_receiver_socket();
+
+struct current_state {
+	int last_inorder_packet;
+	
+} state;
 
 
 int main(int argc, char** argv)
@@ -70,6 +77,7 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 {
 	
 	FILE * pFile;
+	state.last_inorder_packet = -1;
 
 	// Check if we can open the file
     pFile = fopen ( destinationFile , "w" );
@@ -93,17 +101,33 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 	
 		//printf("received a packet!: \n");
 		printf("packet number %d had size of %d\n", *buf, byte_ct);
+		
+		
 		if(*buf == -1)
 			break;
 		//printf("%s", (buf+sizeof(int)));
 		//printf("\n---NEW PACKET ---\n");
 		
-		int res = fputs(buf+FRAMESIZE, pFile);
-		if(res == EOF)
+
+		if(*buf != state.last_inorder_packet+1)
 		{
-			//Handle error here
+			char resp[4];
+			memcpy(resp,&state.last_inorder_packet, sizeof(state.last_inorder_packet));
+			send_packet(resp, sizeof(int), sockfd, &their_addr);
 		}
-		send_packet(buf, sizeof(int) , sockfd, &their_addr);
+		else // Packet was the next in ack sequence
+		{
+			int res = fputs(buf+FRAMESIZE, pFile);
+			if(res == EOF)
+			{
+				//Handle file write error here
+			}
+			printf("Sending ack%d\n", *buf);
+			send_packet(buf, sizeof(int) , sockfd, &their_addr);
+			state.last_inorder_packet++;
+		}
+		
+	
 		
 	}
 

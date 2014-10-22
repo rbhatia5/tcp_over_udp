@@ -88,7 +88,7 @@ void send_packet(const char* buf, int len, int sockfd, struct addrinfo *p)
         perror("talker: sendto"); 
         exit(1); 
     }
-    else    printf("talker: sent %d bytes\n", len); 
+    //else    printf("talker: sent %d bytes\n", len); 
 
 }
 
@@ -116,7 +116,7 @@ int receive_packet(char* buf, int buf_size, int sockfd)
 char * create_payload(char * pay, FILE * fp, int start_byte, int size,  int seq)
 {
 	int i = 0;
-	printf("Payload: byte %d to %d\n", start_byte, size+start_byte-1);
+	//printf("Payload: byte %d to %d\n", start_byte, size+start_byte-1);
 	if(size > MAXBUFLENGTH - sizeof(int))
 	{
 		printf("pay: cannot create payload that large within constraints\n");
@@ -129,7 +129,7 @@ char * create_payload(char * pay, FILE * fp, int start_byte, int size,  int seq)
 	
 	memset(pay, seq, sizeof(seq));
 	fread(pay+sizeof(int), 1, size, fp);
-	printf("\n----END PACKET ----\n");
+	//printf("\n----END PACKET ----\n");
 	return pay;
 }
 
@@ -163,16 +163,16 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 		printf("Failed to open socket!");
 		exit(1);
 	}
-	
+
 	struct timeval tv;
-    int timeout = 100000;
+    int timeout=100000;
 
     tv.tv_sec = 0;
     tv.tv_usec = timeout;
 
-    if (setsockopt (sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv, sizeof(tv)) < 0)
-        printf("setsockopt failed\n");
-
+    if (setsockopt (sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv,
+                sizeof(tv)) < 0)
+        perror("setsockopt failed\n");
 	
 	
 	for(i = 0; i < total_packet_ct; i++) {
@@ -198,15 +198,20 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 		
 		char recv_buf[MAXBUFLENGTH];
 		int numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd);
-		if(numbytes == 0)
+		if(numbytes == 0 || *recv_buf != last_packet_acked+1)
 		{
-			last_packet_acked--;
+			last_packet_sent = last_packet_acked;
+			i = last_packet_acked;
 			printf("listener: received timeout");
 		}
-		last_packet_acked++;
-		printf("ack %d received\n", *recv_buf);
+		else {
+			last_packet_acked++;
+			printf("ack %d received\n", *recv_buf);
+			bytesToTransfer -= next_packet_size; // successfully sent these packets
+		}
 		
-		bytesToTransfer -= next_packet_size; // successfully sent these packets
+		
+		
 		
 		
 		
