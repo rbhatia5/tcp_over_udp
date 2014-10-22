@@ -200,6 +200,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 		int numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd);
 		if(numbytes == 0)
 		{
+			last_packet_acked--;
 			printf("listener: received timeout");
 		}
 		last_packet_acked++;

@@ -61,7 +61,7 @@ int receive_packet(char* buf, int sockfd, struct sockaddr_storage * their_addr)
         perror("recvfrom"); 
         exit(1); 
     } 
-    buf[numbytes+1] = '\0'; 
+    buf[numbytes] = '\0'; 
 
 	return numbytes;
 }
