@@ -69,7 +69,7 @@ int create_socket(char * hostname, char* hostUDPport, struct addrinfo ** p_ptr)
 	
 	*p_ptr = p;
 
-	
+
 	struct timeval tv;
     int timeout=100000;
 
@@ -100,7 +100,7 @@ int send_packet(const char* buf, int len, int sockfd, struct addrinfo *p)
     if ((numbytes = sendto(sockfd, buf, len, 0, 
              p->ai_addr, p->ai_addrlen)) == -1) { 
         perror("talker: sendto"); 
-        exit(1); 
+        //exit(1); 
     }
     //else    printf("talker: sent %d bytes\n", len); 
     return numbytes;
@@ -214,9 +214,9 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	int j = 0;
 	
 	int total_packet_ct = (bytesToTransfer / (MAXBUFLENGTH - sizeof(int))) + 1;
-	int bytes_left = bytesToTransfer;
+	long long int bytes_left = bytesToTransfer;
 	int last_packet_sent = -1;
-	int last_packet_acked = -1;
+	int last_packet_acked = 0;
 	int window_size=1;
 	int pre_window;
 	int ack_record[3]; //recore dupack
@@ -251,22 +251,22 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	
     printf("total_packet_ct: %d\n", total_packet_ct);
 	
-	while( i < total_packet_ct) {
+	while( last_packet_acked < total_packet_ct) {
 		
-		//printf("I have %lld bytes left to transfer\n", bytesToTransfer);
+		printf("I have %lld bytes left to transfer\n", bytes_left);
 		
 		int next_packet_size;
-		if(bytesToTransfer > (MAXBUFLENGTH-sizeof(int))) // Multiple packets left
+		if(bytes_left > (MAXBUFLENGTH-sizeof(int))) // Multiple packets left
 			next_packet_size = MAXBUFLENGTH-sizeof(int);
 		else // last packet
-			next_packet_size = bytesToTransfer;
+			next_packet_size = bytes_left;
 		
 
 		char pay[MAXBUFLENGTH];
 
 //*****eric code start*******send pack
 		printf("**************window_size:  %d *****************\n", window_size);
-		if((last_packet_acked+window_size)<total_packet_ct){   
+		if((last_packet_acked+1+window_size)<total_packet_ct){   
 			printf("send packet %d to %d\n", last_packet_acked+1, last_packet_acked+window_size);
             if(send_multiple_packet(pFile, last_packet_acked+1, last_packet_acked+window_size, sockfd, p, next_packet_size,pay)==-1){
             	SS=1;
@@ -278,15 +278,15 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
             last_packet_sent+=window_size;
         }
         else{
-        	printf("send packet %d to %d\n", last_packet_acked+1, total_packet_ct);
-            if(send_multiple_packet(pFile, last_packet_acked+1, total_packet_ct, sockfd, p, next_packet_size,pay)==-1){
+        	printf("******************send packet %d to %d\n", last_packet_acked+1, total_packet_ct);
+            if(send_multiple_packet(pFile, last_packet_acked+1, total_packet_ct, sockfd, p, bytes_left%(MAXBUFLENGTH-sizeof(int)),pay)==-1){
             	SS=1;
-            	printf("here!\n");
+            	printf("*************************here!\n");
             	sockfd = create_socket(hostname, hostUDPport, &p);
             }
             	
             pre_window=total_packet_ct-last_packet_acked;
-            last_packet_sent+=total_packet_ct-last_packet_acked;
+            //last_packet_sent+=total_packet_ct-last_packet_acked;
         }
 
 //*****eric code end*******send pack
@@ -314,13 +314,13 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 			if(numbytes == -1)
 			{
 				//last_packet_sent = last_packet_acked;
-				i = last_packet_acked+1;
+				//i = last_packet_acked+1;
 				printf("listener: received timeout\n");
 				
 				sockfd = create_socket(hostname, hostUDPport, &p);
 			
 			}
-			else if(recv_ack != last_packet_acked+1){
+			else if(recv_ack <= last_packet_acked){
 				
 
         		ack_record[2]=ack_record[1];
@@ -329,10 +329,13 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 			}
 			else {
 				if(SS==1||(j+1)==pre_window)  window_size++;
-				last_packet_acked++;
+				
+				//last_packet_acked++;
+				last_packet_acked=recv_ack;
 				printf("ack %d received\n", recv_ack);
-				bytesToTransfer -= next_packet_size; // successfully sent these packets
-				i++;
+				bytes_left =bytesToTransfer- (last_packet_acked*(MAXBUFLENGTH-sizeof(int))); // successfully sent these packets
+				//i++;
+				//i = last_packet_acked;
 			}	
 			
 
