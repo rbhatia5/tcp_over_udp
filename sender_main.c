@@ -71,7 +71,7 @@ int create_socket(char * hostname, char* hostUDPport, struct addrinfo ** p_ptr)
 
 
 	struct timeval tv;
-    int timeout=80000;
+    int timeout=20000;
 
     tv.tv_sec = 0;
     tv.tv_usec = timeout;
