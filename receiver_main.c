@@ -77,7 +77,7 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 {
 	
 	FILE * pFile;
-	state.last_inorder_packet = -1;
+	state.last_inorder_packet = 0;
 
 	// Check if we can open the file
     pFile = fopen ( destinationFile , "w" );
