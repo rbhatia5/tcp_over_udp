@@ -159,7 +159,7 @@ int receive_packet(char* buf, int buf_size, int sockfd)
 {
     int numbytes;
 
-    printf("listener: waiting to recvfrom...\n"); 
+    //printf("listener: waiting to recvfrom...\n"); 
 
     if ((numbytes = recv(sockfd, buf, buf_size , 0)) == -1) { 
         perror("recv"); 
@@ -167,7 +167,7 @@ int receive_packet(char* buf, int buf_size, int sockfd)
     } 
     buf[numbytes] = '\0'; 
 
-	printf("listener: received %d bytes!\n", numbytes);
+	//printf("listener: received %d bytes!\n", numbytes);
 
 	return numbytes;
 }
@@ -221,6 +221,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	int pre_window;
 	int ack_record[3]; //recore dupack
 	int dupack_count=0;
+	int timeout_count=0;
 	char final_buf[4];
 
     for(j=0;j<3;j++){  // hi eric <3333 - prajit
@@ -307,7 +308,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 
 
 //*****eric code start*******recv ack
-		printf("start recv!!!\n");
+		//printf("start recv!!!\n");
 		for(j=0;j<pre_window;j++){
             char recv_buf[MAXBUFLENGTH];
 			int numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd);
@@ -321,10 +322,17 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 				
 				sockfd = create_socket(hostname, hostUDPport, &p);
 				dupack_count=0;
-			
+				timeout_count++;
+				if(timeout_count==3) 
+				{
+					timeout_count=0;
+					break;
+				}
+					
 			}
 			else if(recv_ack <= last_packet_acked){
 				dupack_count++;
+				timeout_count=0;
 				if (dupack_count==3)
 				{
 					printf("dup ack %d received\n", recv_ack);
@@ -362,9 +370,10 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 				
 				//last_packet_acked++;
 				last_packet_acked=recv_ack;
-				printf("ack %d received\n", recv_ack);
+				//printf("ack %d received\n", recv_ack);
 				bytes_left =bytesToTransfer- (last_packet_acked*(MAXBUFLENGTH-sizeof(int))); // successfully sent these packets
 				dupack_count=0;
+				timeout_count=0;
 				//i++;
 				//i = last_packet_acked;
 			}	
