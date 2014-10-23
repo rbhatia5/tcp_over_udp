@@ -104,7 +104,7 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 		
 		
 		if(*buf == -1)
-			break;
+			goto FIN;
 		//printf("%s", (buf+sizeof(int)));
 		//printf("\n---NEW PACKET ---\n");
 		
@@ -132,7 +132,8 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 	
 		
 	}
-
+	FIN:
+	printf("Received fin\n");
 	free(buf);
 	//clean up file
 	fclose(pFile);

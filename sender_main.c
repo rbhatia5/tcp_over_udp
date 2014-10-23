@@ -93,7 +93,7 @@ void send_packet(const char* buf, int len, int sockfd, struct addrinfo *p)
 {    
     int numbytes;
 
-    printf("send packet %d\n", *buf);
+    //printf("send packet %d\n", *buf);
     if ((numbytes = sendto(sockfd, buf, len, 0, 
              p->ai_addr, p->ai_addrlen)) == -1) { 
         perror("talker: sendto"); 
@@ -127,7 +127,7 @@ int receive_packet(char* buf, int buf_size, int sockfd)
 int create_payload(char * pay, FILE * fp, int start_byte, int size,  int seq)
 {
 	int i = 0;
-	//printf("Payload: byte %d to %d\n", start_byte, size+start_byte-1);
+	printf("Payload %d: byte %d to %d\n", seq, start_byte, size+start_byte-1);
 	if(size > MAXBUFLENGTH - sizeof(int))
 	{
 		printf("pay: cannot create payload that large within constraints\n");
@@ -178,12 +178,23 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
         fputs ("File error",stderr); 
         return;
     }
+
+	fseek(pFile, 0L, SEEK_END);
+	long long int fsize = ftell(pFile);
+	fseek(pFile, 0L, SEEK_SET);
+	
 	
 	
 	int sockfd = create_socket(hostname, hostUDPport, &p);
 	if (sockfd == -1) {
 		printf("Failed to open socket!");
 		exit(1);
+	}
+
+	// check if file is big enough
+	if(fsize < bytesToTransfer) {
+		printf("File is too small to send that much data!\n");
+		goto close; // go to cleanu
 	}
 
 	struct timeval tv;
@@ -200,9 +211,126 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	
 	int j = 0, bytes_sent = 0;
 	
+	while(state.cong_win_start < total_packet_ct || state.highest_acked_packet + 1 < total_packet_ct)
+	{
+		//check if we need to receive acks
+		//printf("Respond State\n");
+		while(state.highest_acked_packet < state.cong_win_start - 1)
+		{
+			
+			char recv_buf[MAXBUFLENGTH];
+			int numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd);
+			
+			if(numbytes == 0  )
+			{
+				//If I timed out, need to reset frame
+				state.curr_packet = state.highest_acked_packet+1;
+				int win_size = state.cong_win_end - state.cong_win_start;
+				state.cong_win_start = state.curr_packet;
+				state.cong_win_end = state.cong_win_start + win_size/2;
+				printf("Timed out, reseting to highest acked\n");
+				break;
+			}
+			else if(*recv_buf < state.highest_acked_packet+1) 
+			{
+				state.curr_packet = state.highest_acked_packet+1;
+				int win_size = state.cong_win_end - state.cong_win_start;
+				state.cong_win_start = state.curr_packet;
+				state.cong_win_end = state.cong_win_start + win_size;
+				//printf("Reseting to highest acked\n");
+				break;
+			}
+			else if(*recv_buf > state.highest_acked_packet+1) 
+			{
+				state.highest_acked_packet = *recv_buf;
+				
+				state.curr_packet = state.highest_acked_packet+1;
+				int win_size = state.cong_win_end - state.cong_win_start;
+				state.cong_win_start = state.curr_packet;
+				state.cong_win_end = state.cong_win_start + win_size;
+				//printf("Received Higher ack, taking it\n");
+				break;
+			}
+			else {
+				//printf("Received ack%d\n",*recv_buf);
+				int next_packet_size;
+				if(state.curr_packet + 1 < total_packet_ct ){ // Multiple packets left
+					next_packet_size = MAXBUFLENGTH-sizeof(int);
+					printf("multiple remaining\n");
+				}
+				else if(state.curr_packet + 1 == total_packet_ct){ // last packet
+					next_packet_size = bytesToTransfer % (MAXBUFLENGTH-sizeof(int));
+					printf("final packet, bytesToTransfer = %lld, mod value %d \n", bytesToTransfer, next_packet_size);
+				}
+				else {
+					next_packet_size = 0;
+					//printf("end of file\n");
+					break;
+				}
+				char pay[next_packet_size+sizeof(int)];
+				int ret = create_payload(pay, pFile, (MAXBUFLENGTH - sizeof(int))*state.curr_packet, next_packet_size, state.curr_packet);
+				if(ret == -1)
+				{
+					printf("ERROR: could not create a payload\n");
+					goto close;
+				}
+				send_packet(pay, next_packet_size+sizeof(int) , sockfd, p);
+				printf("Sent Packet %d\n", state.curr_packet);
+				state.curr_packet++;
+				state.cong_win_end++;
+				state.highest_acked_packet++;
+				
+				
+				
+			}
+			
+		}
+		
+		//printf("Send State\n");
+		while(state.curr_packet < state.cong_win_end)
+		{
+			
+			int next_packet_size;
+			if(state.curr_packet + 1 < total_packet_ct ){ // Multiple packets left
+				next_packet_size = MAXBUFLENGTH-sizeof(int);
+				//printf("multiple remaining\n");
+			}
+			else if(state.curr_packet + 1 == total_packet_ct){ // last packet
+				next_packet_size = bytesToTransfer  - (state.curr_packet)*(MAXBUFLENGTH-sizeof(int));
+				//printf("one remaining\n");
+			}
+			else {
+				next_packet_size = 0;
+				//printf("end of file\n");
+				break;
+			}
+			char pay[next_packet_size+sizeof(int)];
+			int ret = create_payload(pay, pFile, (MAXBUFLENGTH - sizeof(int))*state.curr_packet, next_packet_size, state.curr_packet);
+			if(ret == -1)
+			{
+				printf("ERROR: could not create a payload\n");
+				goto close;
+			}
+			send_packet(pay, next_packet_size+sizeof(int) , sockfd, p);
+			printf("Sent Packet %d\n", state.curr_packet);
+			state.curr_packet++;
+		}
+		
+		int win_size = state.cong_win_end - state.cong_win_start;
+		state.cong_win_start += win_size;
+		state.cong_win_end += win_size;
+	
+	}	
+	
+	
+	close: printf("cleaning up!\n");
+	
+	/*
+	
 	
 	while(state.highest_acked_packet+1 < total_packet_ct)
 	{
+		
 		j = 0;
 		//printf("Curr packet is : %d\n", state.curr_packet);
 		printf("bytes_sent: %d\n", bytes_sent);
@@ -322,7 +450,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 		
 	}
 	
-	
+	*/
 	/*
 	
 	while( i < total_packet_ct) {
