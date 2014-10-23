@@ -17,6 +17,7 @@
 //Prototypes
 void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long long int bytesToTransfer);
 char * create_payload(char * pay, FILE * fp, int start_byte, int size,  int seq);
+int SS=1;
 
 int main(int argc, char** argv)
 {
@@ -68,6 +69,17 @@ int create_socket(char * hostname, char* hostUDPport, struct addrinfo ** p_ptr)
 	
 	*p_ptr = p;
 
+	
+	struct timeval tv;
+    int timeout=100000;
+
+    tv.tv_sec = 0;
+    tv.tv_usec = timeout;
+
+    if (setsockopt (sockfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&tv,
+                sizeof(tv)) < 0)
+        perror("setsockopt failed\n");
+
 	freeaddrinfo(servinfo); 
 
 	return sockfd;
@@ -78,20 +90,20 @@ int create_socket(char * hostname, char* hostUDPport, struct addrinfo ** p_ptr)
 /* -------------------------------------------------------------------------------- */
 // Packet sending and receiving 
 /* -------------------------------------------------------------------------------- */
-void send_packet(const char* buf, int len, int sockfd, struct addrinfo *p)
+int send_packet(const char* buf, int len, int sockfd, struct addrinfo *p)
 {    
     int numbytes;
     int * ptr;
     ptr=malloc(sizeof(int));
     memcpy(ptr,buf,4);
-    printf("send packet %d\n",(int)*ptr);
+    //printf("send packet %d\n",(int)*ptr);
     if ((numbytes = sendto(sockfd, buf, len, 0, 
              p->ai_addr, p->ai_addrlen)) == -1) { 
         perror("talker: sendto"); 
         exit(1); 
     }
     //else    printf("talker: sent %d bytes\n", len); 
-
+    return numbytes;
 }
 void write_header(char* buf, int packet_num)
 {
@@ -101,7 +113,7 @@ void write_header(char* buf, int packet_num)
     memcpy(buf, head, 4);
 }
 
-void send_multiple_packet(FILE* pFile, int from, int to, int sockfd, struct addrinfo *p, int last_packet_len, char* pay)
+int send_multiple_packet(FILE* pFile, int from, int to, int sockfd, struct addrinfo *p, int last_packet_len, char* pay)
 {    
     int number_of_packets=(to-from+1);
     int i;
@@ -124,7 +136,7 @@ void send_multiple_packet(FILE* pFile, int from, int to, int sockfd, struct addr
             //result = fread (buf+4,1,last_packet_len, pFile);
             //if (result != last_packet_len) {fputs ("Reading error",stderr); exit (3);}
             //buf[last_packet_len+4]='\0';
-        	send_packet(pay, last_packet_len+sizeof(int), sockfd, p);
+        	if(send_packet(pay, last_packet_len+sizeof(int), sockfd, p)==-1) return -1;
         }
         else{
         	create_payload(pay, pFile, (MAXBUFLENGTH-sizeof(int))*(from-1+i), (MAXBUFLENGTH-sizeof(int)), (from+i));
@@ -132,14 +144,14 @@ void send_multiple_packet(FILE* pFile, int from, int to, int sockfd, struct addr
             //result = fread (buf+4,1,(MAXBUFLENGTH-4), pFile);
             //if (result != (MAXBUFLENGTH-4)) {fputs ("Reading error",stderr); exit (3);}
             //buf[MAXBUFLENGTH]='\0';
-        	send_packet(pay, MAXBUFLENGTH, sockfd, p);
+        	if(send_packet(pay, MAXBUFLENGTH, sockfd, p)==-1) return -1;
         }
 
 
         //send_packet(pay, result+4, sockfd, p);
     }
 
-    return; 
+    return 0; 
 
 }
 
@@ -147,7 +159,7 @@ int receive_packet(char* buf, int buf_size, int sockfd)
 {
     int numbytes;
 
-    //printf("listener: waiting to recvfrom...\n"); 
+    printf("listener: waiting to recvfrom...\n"); 
 
     if ((numbytes = recv(sockfd, buf, buf_size , 0)) == -1) { 
         perror("recv"); 
@@ -155,7 +167,7 @@ int receive_packet(char* buf, int buf_size, int sockfd)
     } 
     buf[numbytes] = '\0'; 
 
-	//printf("listener: received %d bytes!\n", numbytes);
+	printf("listener: received %d bytes!\n", numbytes);
 
 	return numbytes;
 }
@@ -241,7 +253,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	
 	while( i < total_packet_ct) {
 		
-		printf("I have %lld bytes left to transfer\n", bytesToTransfer);
+		//printf("I have %lld bytes left to transfer\n", bytesToTransfer);
 		
 		int next_packet_size;
 		if(bytesToTransfer > (MAXBUFLENGTH-sizeof(int))) // Multiple packets left
@@ -253,15 +265,26 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 		char pay[MAXBUFLENGTH];
 
 //*****eric code start*******send pack
+		printf("**************window_size:  %d *****************\n", window_size);
 		if((last_packet_acked+window_size)<total_packet_ct){   
 			printf("send packet %d to %d\n", last_packet_acked+1, last_packet_acked+window_size);
-            send_multiple_packet(pFile, last_packet_acked+1, last_packet_acked+window_size, sockfd, p, next_packet_size,pay);    
+            if(send_multiple_packet(pFile, last_packet_acked+1, last_packet_acked+window_size, sockfd, p, next_packet_size,pay)==-1){
+            	SS=1;
+            	printf("here!\n");
+            	sockfd = create_socket(hostname, hostUDPport, &p);
+            }
+            	
             pre_window=window_size;
             last_packet_sent+=window_size;
         }
         else{
         	printf("send packet %d to %d\n", last_packet_acked+1, total_packet_ct);
-            send_multiple_packet(pFile, last_packet_acked+1, total_packet_ct, sockfd, p, next_packet_size,pay); 
+            if(send_multiple_packet(pFile, last_packet_acked+1, total_packet_ct, sockfd, p, next_packet_size,pay)==-1){
+            	SS=1;
+            	printf("here!\n");
+            	sockfd = create_socket(hostname, hostUDPport, &p);
+            }
+            	
             pre_window=total_packet_ct-last_packet_acked;
             last_packet_sent+=total_packet_ct-last_packet_acked;
         }
@@ -282,6 +305,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 
 
 //*****eric code start*******recv ack
+		printf("start recv!!!\n");
 		for(j=0;j<pre_window;j++){
             char recv_buf[MAXBUFLENGTH];
 			int numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd);
@@ -293,27 +317,30 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 				i = last_packet_acked+1;
 				printf("listener: received timeout\n");
 				
-				int sockfd = create_socket(hostname, hostUDPport, &p);
+				sockfd = create_socket(hostname, hostUDPport, &p);
 			
 			}
 			else if(recv_ack != last_packet_acked+1){
-				printf("dup ack %d received\n", recv_ack);
+				
 
         		ack_record[2]=ack_record[1];
         		ack_record[1]=ack_record[0];
         		ack_record[0]=last_packet_acked;
 			}
 			else {
-				window_size++;
+				if(SS==1||(j+1)==pre_window)  window_size++;
 				last_packet_acked++;
 				printf("ack %d received\n", recv_ack);
 				bytesToTransfer -= next_packet_size; // successfully sent these packets
 				i++;
 			}	
 			
+
 			if (ack_record[0]!=0&&ack_record[1]==ack_record[2]&&ack_record[0]==ack_record[1])
     		{
+    			printf("dup ack %d received\n", recv_ack);
         		/* dup_ack received */
+        		SS=0;
         		window_size/=2;
         		if (window_size==0)
       		  	{
