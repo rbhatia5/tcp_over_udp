@@ -100,19 +100,30 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 		int byte_ct = receive_packet(buf, sockfd, &their_addr);
 	
 		//printf("received a packet!: \n");
-		printf("packet number %d had size of %d\n", *buf, byte_ct);
 		
 		
-		if(*buf == -1)
+		int packet_num;
+		memcpy(&packet_num,buf,4);
+		printf("packet number %d had size of %d\n", packet_num, byte_ct);
+		if(packet_num == -1)
 			break;
 		//printf("%s", (buf+sizeof(int)));
 		//printf("\n---NEW PACKET ---\n");
+		char resp[5];
 		
+		//int packet_num;
+		//memcpy(&packet_num, buf, 4);
 
-		if(*buf != state.last_inorder_packet+1)
+		
+		if(packet_num != state.last_inorder_packet+1)
 		{
-			char resp[4];
-			memcpy(resp,&state.last_inorder_packet, sizeof(state.last_inorder_packet));
+			printf("here!\n");
+			
+			//memcpy(resp,&state.last_inorder_packet, sizeof(state.last_inorder_packet));
+			resp[0]=state.last_inorder_packet;
+			resp[1]=state.last_inorder_packet>>8;
+			resp[2]=state.last_inorder_packet>>16;
+			resp[3]=state.last_inorder_packet>>24;
 			printf("sending ack%d\n",state.last_inorder_packet);
 			send_packet(resp, sizeof(int), sockfd, &their_addr);
 		}
@@ -123,9 +134,15 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 			{
 				//Handle file write error here
 			}
-			printf("Sending ack%d\n", *buf);
-			send_packet(buf, sizeof(int) , sockfd, &their_addr);
+			printf("ack=%d\n", state.last_inorder_packet);
 			state.last_inorder_packet++;
+			resp[0]=state.last_inorder_packet;
+			resp[1]=state.last_inorder_packet>>8;
+			resp[2]=state.last_inorder_packet>>16;
+			resp[3]=state.last_inorder_packet>>24;
+			printf("Sending ack%d\n", *resp);
+			send_packet(resp, sizeof(int) , sockfd, &their_addr);
+			
 		}
 		
 	
