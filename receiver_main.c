@@ -105,8 +105,13 @@ void reliablyReceive(char* myUDPport, char* destinationFile)
 		int packet_num;
 		memcpy(&packet_num,buf,4);
 		printf("packet number %d had size of %d\n", packet_num, byte_ct);
-		if(packet_num == -1)
+		if(packet_num == -1){
+			printf("send ack %d\n", (int)*buf);
+			send_packet(buf, sizeof(int), sockfd, &their_addr);
 			break;
+
+		}
+			
 		//printf("%s", (buf+sizeof(int)));
 		//printf("\n---NEW PACKET ---\n");
 		char resp[5];
