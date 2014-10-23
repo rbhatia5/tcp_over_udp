@@ -199,7 +199,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	int pre_window;
 	int ack_record[3]; //recore dupack
 
-    for(i=0;i<3;i++){
+    for(j=0;j<3;j++){
         ack_record[i]=0;
         }
 
@@ -227,6 +227,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
                 sizeof(tv)) < 0)
         perror("setsockopt failed\n");
 	
+    printf("total_packet_ct: %d\n", total_packet_ct);
 	
 	while( i < total_packet_ct) {
 		
