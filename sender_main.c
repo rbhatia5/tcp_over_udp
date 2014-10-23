@@ -71,7 +71,7 @@ int create_socket(char * hostname, char* hostUDPport, struct addrinfo ** p_ptr)
 
 
 	struct timeval tv;
-    int timeout=100000;
+    int timeout=80000;
 
     tv.tv_sec = 0;
     tv.tv_usec = timeout;
@@ -325,6 +325,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 				timeout_count++;
 				if(timeout_count==3) 
 				{
+					SS=1;
 					timeout_count=0;
 					break;
 				}
@@ -333,6 +334,17 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 			else if(recv_ack <= last_packet_acked){
 				dupack_count++;
 				timeout_count=0;
+				printf("here\n");
+				for(j=0;j<(last_packet_acked-recv_ack);j++){
+					if(numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd)==-1)
+        			{
+        				sockfd = create_socket(hostname, hostUDPport, &p);
+        				break;
+        			}
+        			memcpy(&recv_ack,recv_buf,4);
+        			if(recv_ack>last_packet_acked) last_packet_acked=recv_ack;
+				}
+
 				if (dupack_count==3)
 				{
 					printf("dup ack %d received\n", recv_ack);
@@ -347,7 +359,8 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
         			//exit(1);
 
         			ack_record[0]=recv_ack;
-        			while(recv_ack==ack_record[0]){
+        			while(recv_ack<=last_packet_acked){
+        				printf("keep recv!!!!!!!!!!!\n");
         				if(numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd)==-1)
         				{
         					sockfd = create_socket(hostname, hostUDPport, &p);
