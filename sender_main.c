@@ -221,6 +221,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	int pre_window;
 	int ack_record[3]; //recore dupack
 	int dupack_count=0;
+	char final_buf[4];
 
     for(j=0;j<3;j++){  // hi eric <3333 - prajit
         ack_record[i]=0;
@@ -414,9 +415,11 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	char fin[10];
 	int fin_num = -1;
 	memcpy(fin, &fin_num, sizeof(int));
-	send_packet(fin, 50, sockfd, p);
-	
-	
+	do{
+		printf("send fin\n");
+		send_packet(fin, 50, sockfd, p);
+	}while(receive_packet(final_buf, MAXBUFLENGTH , sockfd)==-1);
+
 	//clean up file
 	fclose(pFile);
 	
