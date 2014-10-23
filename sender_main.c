@@ -220,6 +220,7 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 	int window_size=1;
 	int pre_window;
 	int ack_record[3]; //recore dupack
+	int dupack_count=0;
 
     for(j=0;j<3;j++){  // hi eric <3333 - prajit
         ack_record[i]=0;
@@ -318,39 +319,68 @@ void reliablyTransfer(char* hostname, char* hostUDPport, char* filename, long lo
 				printf("listener: received timeout\n");
 				
 				sockfd = create_socket(hostname, hostUDPport, &p);
+				dupack_count=0;
 			
 			}
 			else if(recv_ack <= last_packet_acked){
-				
+				dupack_count++;
+				if (dupack_count==3)
+				{
+					printf("dup ack %d received\n", recv_ack);
+					SS=0;
+        			window_size/=2;
+
+        			if (window_size==0)
+      		  		{
+            			window_size=1;
+        			}
+        			dupack_count=0;
+        			//exit(1);
+
+        			ack_record[0]=recv_ack;
+        			while(recv_ack==ack_record[0]){
+        				if(numbytes = receive_packet(recv_buf, MAXBUFLENGTH , sockfd)==-1)
+        				{
+        					sockfd = create_socket(hostname, hostUDPport, &p);
+        					break;
+        				}
+        					
+						memcpy(&recv_ack,recv_buf,4);
+
+        			}
+        			break;
+				}
 
         		ack_record[2]=ack_record[1];
         		ack_record[1]=ack_record[0];
         		ack_record[0]=last_packet_acked;
 			}
 			else {
-				if(SS==1||(j+1)==pre_window)  window_size++;
+				if(SS==1||(j+1)==pre_window)  
+					window_size++;
 				
 				//last_packet_acked++;
 				last_packet_acked=recv_ack;
 				printf("ack %d received\n", recv_ack);
 				bytes_left =bytesToTransfer- (last_packet_acked*(MAXBUFLENGTH-sizeof(int))); // successfully sent these packets
+				dupack_count=0;
 				//i++;
 				//i = last_packet_acked;
 			}	
 			
 
-			if (ack_record[0]!=0&&ack_record[1]==ack_record[2]&&ack_record[0]==ack_record[1])
+			/*if (ack_record[0]!=0&&ack_record[1]==ack_record[2]&&ack_record[0]==ack_record[1])
     		{
     			printf("dup ack %d received\n", recv_ack);
         		/* dup_ack received */
-        		SS=0;
+        		/*SS=0;
         		window_size/=2;
         		if (window_size==0)
       		  	{
             		window_size=1;
         		}
         		break;
-    		}
+    		}*/
 
 
         }
